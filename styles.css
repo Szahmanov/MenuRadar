@@ -440,27 +440,6 @@ body {
 .audit-act.demote { background: rgba(255,93,108,.14); color: var(--danger); }
 .audit-act.flag { background: rgba(255,138,61,.14); color: var(--appetite); }
 
-/* ---- Compare ---- */
-.compare-btn { margin-top: 16px; width: 100%; }
-.compare-grid { display: grid; grid-template-columns: 1fr; gap: 12px; }
-.compare-col {
-  background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: 12px; padding: 14px;
-}
-.compare-col.mr { border-color: var(--signal-dim); }
-.compare-col p { margin: 8px 0 0; font-size: 13.5px; line-height: 1.55; color: var(--text); }
-.compare-tag {
-  font: 700 11px "JetBrains Mono", monospace; text-transform: uppercase; letter-spacing: .05em;
-  color: var(--muted);
-}
-.compare-tag.good { color: var(--signal); }
-.compare-col .source { margin-top: 10px; }
-.compare-note { margin: 14px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--muted); }
-.compare-loading { margin: 0; font: 500 13px "JetBrains Mono", monospace; color: var(--muted); }
-@media (min-width: 620px) {
-  .compare-grid { grid-template-columns: 1fr 1fr; }
-}
-
 /* ---- Accessibility / motion ---- */
 :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
