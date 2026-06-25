@@ -1,158 +1,131 @@
 /* ============================================================
-   MenuRadar by StaGove — app.js  (v1.1)
+   MenuRadar by StaGove — app.js  (v2.0)
    Autonomous food decision agent (client orchestrator).
-   New in v1.1: self-audit revision pass, Google Maps links,
-   search history, "Why not ChatGPT" compare, budget math.
+   v2: real reviews as a ranking factor, EUR currency, top 5,
+   output language follows the UI toggle, compare feature removed.
    ============================================================ */
 
 const CONFIG = {
-  MAX_FETCH: 5,
+  MAX_FETCH: 6,
+  TOP_N: 5,
   CACHE_TTL: 24 * 60 * 60 * 1000,
-  WEIGHTS: { food: 0.30, budget: 0.25, open: 0.20, menu: 0.15, location: 0.10 },
-  CONFIDENCE_MIN: 55,
+  // weights sum to 1.0
+  WEIGHTS: { food: 0.25, review: 0.20, budget: 0.20, open: 0.15, menu: 0.10, location: 0.10 },
+  CONFIDENCE_MIN: 50,
   HISTORY_MAX: 5,
 };
 
 /* ---------- i18n ---------- */
 const I18N = {
   bg: {
-    "hero.title": "Намери най-доброто ядене за бюджета си.",
-    "hero.sub": "Един ред. Агентът претърсва живи менюта, проверява бюджет, работно време и доказателства, прави самооценка — и решава вместо теб.",
-    "input.placeholder": "Пловдив, център, пилешко, 15 лв, сега",
+    "hero.title": "Къде да ядеш сега — реални менюта, реални ревюта, твоят бюджет.",
+    "hero.sub": "Кажи град, район, какво ти се яде и (по желание) бюджет. Агентът проверява деня и часа, чете реални менюта и ревюта на живо и класира най-добрите места близо до теб.",
+    "input.placeholder": "Пловдив, център, пилешко, 15 €, сега",
     "input.run": "Намери",
     "input.refresh": "Презареди (игнорирай кеша)",
-    "key.button": "Groq ключ",
-    "key.title": "Свържи своя безплатен Groq ключ",
-    "key.sub": "MenuRadar използва твой собствен безплатен Groq ключ, за да няма повтарящи се разходи. Ключът се пази само в този браузър (localStorage) и се праща директно към Groq.",
-    "key.get": "Вземи безплатен ключ от console.groq.com →",
-    "key.save": "Запази",
-    "key.clear": "Изтрий",
     "history.title": "Скорошни търсения",
     "goal.title": "Разчетена цел",
-    "results.title": "Топ 3 препоръки",
+    "results.title": "Топ 5 места",
     "rejected.title": "Отхвърлени опции",
     "audit.title": "Самооценка на решението",
     "report.title": "Автономен доклад за решението",
     "proof.title": "Доказателство за автономност",
-    "compare.button": "Защо не просто ChatGPT?",
-    "compare.title": "MenuRadar срещу обикновен LLM",
-    "disclaimer.text": "MenuRadar търси публично достъпна онлайн информация за менюта. Ресторанти без онлайн меню може да не се появят. Цените и работното време може да са остарели — винаги потвърждавай преди да тръгнеш.",
-    steps: ["Разчитам целта", "Търся ресторанти", "Чета менюта", "Проверявам бюджет", "Проверявам работно време", "Класирам опции", "Правя самооценка", "Подготвям доклад"],
+    "disclaimer.text": "MenuRadar търси публично достъпна онлайн информация за менюта и ревюта. Ресторанти без онлайн присъствие може да не се появят. Цените и работното време може да са остарели — винаги потвърждавай преди да тръгнеш.",
+    steps: ["Разчитам целта", "Търся ресторанти", "Чета менюта и ревюта", "Проверявам бюджет", "Проверявам работно време", "Класирам места", "Правя самооценка", "Подготвям доклад"],
     cache: () => `Показани са кеширани резултати от по-рано. Включи „Презареди“ за свежо търсене.`,
     chip: { city: "град", area: "район", food: "храна", budget: "бюджет", time: "момент", priority: "приоритет" },
     rank: "ВОДЕЩ",
     why: "Защо е избран", left: "Какво остава неясно", source: "Източник", maps: "Виж на картата",
-    budgetCalc: "Сметка",
+    budgetCalc: "Сметка", rating: "Ревюта",
     auditFlag: "Бележка от самооценката",
     auditConfirmed: "Самооценката потвърди класирането без промени.",
     auditAdjusted: "Самооценката коригира класирането:",
     report: {
       goal: "Цел на потребителя", strategy: "Стратегия за търсене", pages: "Прегледани страници",
-      menus: "Анализирани менюта", criteria: "Критерии за избор", audit: "Резултат от самооценката",
+      menus: "Анализирани места", criteria: "Критерии за избор", audit: "Резултат от самооценката",
       chosen: "Защо водещият", rejected: "Защо отпаднаха другите", confidence: "Ниво на увереност", next: "Следваща стъпка",
     },
     proof: {
       parsed: (g) => `Разчетох целта: ${g}`,
       query: (q) => `Създадох автоматично заявка: „${q}“`,
       search: (n) => `Претърсих Google през Serper и върнах ${n} резултата`,
-      read: (n) => `Прочетох ${n} страници с менюта`,
+      read: (n) => `Прочетох ${n} страници с менюта и ревюта`,
       reject: (n) => `Отхвърлих ${n} слаби съвпадения`,
-      rank: (n) => `Класирах ${n} проверени опции`,
+      rank: (n) => `Класирах ${n} проверени места`,
       audit: (v) => `Направих самооценка на собственото си решение (${v})`,
-      choose: (name) => `Избрах най-добрия резултат (${name}) по храна, бюджет, работно време и доказателства`,
+      choose: (name) => `Избрах най-доброто място (${name}) по храна, ревюта, бюджет, работно време и доказателства`,
     },
-    compare: {
-      llmLabel: "Обикновен LLM (без живи данни)",
-      mrLabel: "MenuRadar (живи данни)",
-      mrBody: (n, name, price, host) => `Прочете ${n} живи страници. Водещ: ${name} — ${price}. Източник: ${host}.`,
-      note: "Обикновеният LLM отговаря по памет, без да отваря менюта, без цени в реално време и без източник. MenuRadar върши реалната работа.",
-      loading: "Питам обикновен LLM…",
-    },
-    none: "Не успях уверено да потвърдя добра опция от наличните онлайн менюта. Опитай по-голям район, по-широк тип храна или по-висок бюджет.",
+    none: "Не успях уверено да потвърдя добро място от наличната онлайн информация. Опитай по-голям район, по-широк тип храна или по-висок бюджет.",
     err: {
       groqkey: "Сървърът няма GROQ_API_KEY. Добави го в Netlify → Environment variables.",
       rate: "Groq лимитът е достигнат. Опитай пак след малко.",
       serper: "Сървърът няма SERPER_API_KEY. Добави го в Netlify → Environment variables.",
       search: "Търсенето се провали. Провери връзката и опитай отново.",
       ai: "AI върна невалиден отговор. Опитай отново.",
-      empty: "Въведи заявка, напр. „Пловдив, център, пилешко, 15 лв, сега“.",
+      empty: "Въведи заявка, напр. „Пловдив, център, пилешко, 15 €, сега“.",
     },
-    nextAction: () => `Потвърди работното време по телефона за избрания ресторант, преди да тръгнеш. Ако искаш повече опции — разшири района или вдигни бюджета.`,
+    nextAction: () => `Потвърди работното време по телефона за избраното място, преди да тръгнеш. Ако искаш повече опции — разшири района или вдигни бюджета.`,
+    langInstruction: "Напиши целия четим текст (reason, uncertainty, ratingText, notes, summary) на български език.",
   },
   en: {
-    "hero.title": "Find the best meal your budget can actually buy.",
-    "hero.sub": "One line. The agent scans live menus, checks budget, hours and evidence, self-audits — then decides for you.",
-    "input.placeholder": "Sofia, Studentski Grad, pizza, 20 BGN, tonight",
+    "hero.title": "Where to eat right now — real menus, real reviews, your budget.",
+    "hero.sub": "Tell it your city, area, what you're craving and (optionally) a budget. The agent checks the day and time, reads real menus and reviews live, and ranks the best places near you.",
+    "input.placeholder": "Plovdiv, center, chicken, 15 €, now",
     "input.run": "Find",
     "input.refresh": "Force refresh (ignore cache)",
-    "key.button": "Groq key",
-    "key.title": "Connect your free Groq key",
-    "key.sub": "MenuRadar uses your own free Groq key so there is no recurring cost. The key is stored only in this browser (localStorage) and sent directly to Groq.",
-    "key.get": "Get a free key at console.groq.com →",
-    "key.save": "Save",
-    "key.clear": "Clear",
     "history.title": "Recent searches",
     "goal.title": "Parsed goal",
-    "results.title": "Top 3 recommendations",
+    "results.title": "Top 5 places",
     "rejected.title": "Rejected options",
     "audit.title": "Decision self-audit",
     "report.title": "Autonomous decision report",
     "proof.title": "Proof of autonomy",
-    "compare.button": "Why not just ChatGPT?",
-    "compare.title": "MenuRadar vs a plain LLM",
-    "disclaimer.text": "MenuRadar searches publicly available online menu information. Restaurants without online menus may not appear. Prices and opening hours may be outdated — always confirm before you go.",
-    steps: ["Understanding food goal", "Searching restaurants", "Reading menus", "Checking budget fit", "Checking open-now status", "Ranking options", "Self-auditing", "Preparing decision report"],
+    "disclaimer.text": "MenuRadar searches publicly available online menu and review information. Restaurants without an online presence may not appear. Prices and opening hours may be outdated — always confirm before you go.",
+    steps: ["Understanding food goal", "Searching restaurants", "Reading menus & reviews", "Checking budget fit", "Checking open-now status", "Ranking places", "Self-auditing", "Preparing decision report"],
     cache: () => `Showing cached results from earlier. Tick “Force refresh” for a fresh search.`,
     chip: { city: "city", area: "area", food: "food", budget: "budget", time: "when", priority: "priority" },
     rank: "TOP PICK",
     why: "Why selected", left: "What remains uncertain", source: "Source", maps: "View on map",
-    budgetCalc: "Budget math",
+    budgetCalc: "Budget math", rating: "Reviews",
     auditFlag: "Self-audit note",
     auditConfirmed: "Self-audit confirmed the ranking with no changes.",
     auditAdjusted: "Self-audit adjusted the ranking:",
     report: {
       goal: "User goal", strategy: "Search strategy", pages: "Pages searched",
-      menus: "Menus analyzed", criteria: "Selection criteria", audit: "Self-audit result",
+      menus: "Places analyzed", criteria: "Selection criteria", audit: "Self-audit result",
       chosen: "Why top result", rejected: "Why others rejected", confidence: "Confidence level", next: "Next best action",
     },
     proof: {
       parsed: (g) => `Parsed the goal: ${g}`,
       query: (q) => `Created a search query automatically: “${q}”`,
       search: (n) => `Searched Google via Serper and returned ${n} results`,
-      read: (n) => `Read ${n} restaurant/menu pages`,
+      read: (n) => `Read ${n} menu & review pages`,
       reject: (n) => `Rejected ${n} weak matches`,
-      rank: (n) => `Ranked ${n} verified options`,
+      rank: (n) => `Ranked ${n} verified places`,
       audit: (v) => `Self-audited its own decision (${v})`,
-      choose: (name) => `Chose the best result (${name}) on food, budget, open-now and evidence`,
+      choose: (name) => `Chose the best place (${name}) on food, reviews, budget, open-now and evidence`,
     },
-    compare: {
-      llmLabel: "Plain LLM (no live data)",
-      mrLabel: "MenuRadar (live data)",
-      mrBody: (n, name, price, host) => `Read ${n} live pages. Top pick: ${name} — ${price}. Source: ${host}.`,
-      note: "A plain LLM answers from memory — no menus opened, no real-time prices, no source. MenuRadar does the actual work.",
-      loading: "Asking a plain LLM…",
-    },
-    none: "I could not confidently verify a good option from available online menus. Try a larger area, broader food type, or higher budget.",
+    none: "I could not confidently verify a good place from the available online information. Try a larger area, broader food type, or higher budget.",
     err: {
       groqkey: "Server is missing GROQ_API_KEY. Add it in Netlify → Environment variables.",
       rate: "Groq rate limit reached. Try again shortly.",
       serper: "Server is missing SERPER_API_KEY. Add it in Netlify → Environment variables.",
       search: "Search failed. Check your connection and try again.",
       ai: "The AI returned an invalid response. Try again.",
-      empty: "Enter a query, e.g. “Sofia, Studentski Grad, pizza, 20 BGN, tonight”.",
+      empty: "Enter a query, e.g. “Plovdiv, center, chicken, 15 €, now”.",
     },
-    nextAction: () => `Call the chosen restaurant to confirm hours before you go. Want more options — widen the area or raise the budget.`,
+    nextAction: () => `Call the chosen place to confirm hours before you go. Want more options — widen the area or raise the budget.`,
+    langInstruction: "Write all human-readable text (reason, uncertainty, ratingText, notes, summary) in English.",
   },
 };
 
 const EXAMPLES = {
-  bg: ["Пловдив, център, пилешко, 15 лв, сега", "София, Студентски град, пица, 20 лв", "Варна, морска градина, риба, 25 лв", "Бургас, център, дюнер, 10 лв"],
-  en: ["Sofia, Studentski Grad, pizza, 20 BGN, tonight", "Plovdiv, center, chicken, 15 BGN, now", "Varna, sea garden, fish, 25 BGN", "Burgas, center, doner, 10 BGN"],
+  bg: ["Пловдив, център, пилешко, 15 €, сега", "София, Студентски град, пица, 20 €", "Варна, морска градина, риба, 25 €", "Бургас, център, дюнер, 10 €"],
+  en: ["Plovdiv, center, chicken, 15 €, now", "Sofia, Studentski Grad, pizza, 20 €", "Varna, sea garden, fish, 25 €", "Burgas, center, doner, 10 €"],
 };
 
 /* ---------- State ---------- */
 let LANG = localStorage.getItem("mr_lang") || "bg";
-let lastRun = null;
 const t = (k) => (I18N[LANG][k] ?? k);
 
 /* ---------- DOM ---------- */
@@ -162,10 +135,9 @@ const el = {
   examples: $("examples"), history: $("historyRow"), lang: $("langToggle"),
   progress: $("progress"), steps: $("steps"),
   goalPanel: $("goalPanel"), goalChips: $("goalChips"), cacheNote: $("cacheNote"),
-  resultsPanel: $("resultsPanel"), results: $("results"), compareBtn: $("compareBtn"),
+  resultsPanel: $("resultsPanel"), results: $("results"),
   rejectedPanel: $("rejectedPanel"), rejected: $("rejected"),
   auditPanel: $("auditPanel"), audit: $("audit"),
-  comparePanel: $("comparePanel"), compare: $("compare"),
   reportPanel: $("reportPanel"), report: $("report"),
   proofPanel: $("proofPanel"), proof: $("proof"),
   errorPanel: $("errorPanel"), errorMsg: $("errorMsg"),
@@ -184,7 +156,6 @@ function applyI18n() {
   });
   el.lang.textContent = LANG.toUpperCase();
   el.query.placeholder = t("input.placeholder");
-  el.compareBtn.textContent = t("compare.button");
   renderExamples();
   renderHistory();
 }
@@ -203,6 +174,8 @@ el.lang.onclick = () => {
   LANG = LANG === "bg" ? "en" : "bg";
   localStorage.setItem("mr_lang", LANG);
   applyI18n();
+  // Clear prior results so the user re-runs in the new language
+  clearAll();
 };
 
 /* ============================================================
@@ -235,7 +208,7 @@ function renderHistory() {
    ============================================================ */
 function cacheKey(goal) {
   const norm = (s) => (s || "").toString().toLowerCase().trim().replace(/\s+/g, "");
-  return "mr_cache_" + [norm(goal.city), norm(goal.area), norm(goal.food), goal.budget ?? "x", norm(goal.timeContext)].join("|");
+  return "mr_cache_" + LANG + "_" + [norm(goal.city), norm(goal.area), norm(goal.food), goal.budget ?? "x", norm(goal.timeContext)].join("|");
 }
 function readCache(goal) {
   try {
@@ -294,9 +267,9 @@ class AgentError extends Error {
    ============================================================ */
 function initSteps() {
   el.steps.innerHTML = "";
-  I18N[LANG].steps.forEach((label, i) => {
+  I18N[LANG].steps.forEach((label) => {
     const li = document.createElement("li");
-    li.textContent = label; li.dataset.i = i;
+    li.textContent = label;
     el.steps.appendChild(li);
   });
 }
@@ -318,13 +291,13 @@ async function parseQuery(raw) {
     "You are the intent parser for MenuRadar, an autonomous food decision agent operating in Bulgaria. " +
     "Extract a structured goal from the user's free-text query. The query may be Bulgarian or English and may be messy. " +
     "Keep city, area and food in the user's ORIGINAL language and script — do not translate them. " +
-    "budget is a number or null. currency defaults to 'BGN'. " +
+    "budget is a number or null. currency defaults to 'EUR' (Bulgaria uses the euro). " +
+    "Detect '€', 'EUR' or 'евро' as EUR; 'лв', 'лева' or 'BGN' as BGN. " +
     "timeContext is one of: now, tonight, lunch, later, unspecified. " +
     "Output ONLY a JSON object, no markdown, with keys: " +
-    "city, area, food, budget, currency, timeContext, dietaryConstraints (array), priority (short string), language ('bg' or 'en').";
+    "city, area, food, budget, currency, timeContext, dietaryConstraints (array), priority (short string).";
   const goal = await callGroq(system, `Query: ${raw}`);
-  goal.currency = goal.currency || "BGN";
-  goal.language = goal.language === "en" ? "en" : "bg";
+  goal.currency = goal.currency || "EUR";
   if (typeof goal.budget === "string") {
     const n = parseFloat(goal.budget.replace(",", "."));
     goal.budget = isNaN(n) ? null : n;
@@ -334,15 +307,15 @@ async function parseQuery(raw) {
 
 function buildSearchQuery(goal) {
   const parts = [goal.city, goal.area, goal.food].filter(Boolean);
-  const tail = goal.language === "en" ? "restaurant menu price" : "ресторант меню цена";
+  const tail = LANG === "en" ? "restaurant menu price reviews" : "ресторант меню цена ревюта";
   return [...parts, tail].join(" ").trim();
 }
 
-async function runSearch(query, goal) {
+async function runSearch(query) {
   const res = await fetch("/api/search", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ query, num: 8, gl: "bg", hl: goal.language === "en" ? "en" : "bg" }),
+    body: JSON.stringify({ query, num: 9, gl: "bg", hl: LANG }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -353,7 +326,7 @@ async function runSearch(query, goal) {
   return Array.isArray(data.organic) ? data.organic : [];
 }
 
-const SKIP_DOMAINS = ["instagram.com", "facebook.com", "tiktok.com", "youtube.com", "wikipedia.org", "tripadvisor.", "booking.com"];
+const SKIP_DOMAINS = ["instagram.com", "facebook.com", "tiktok.com", "youtube.com", "wikipedia.org", "booking.com"];
 function filterResults(organic) {
   const seen = new Set();
   return organic.filter((r) => {
@@ -379,7 +352,12 @@ async function fetchPages(results) {
       if (!res.ok) return null;
       const page = await res.json();
       if (!page || (!page.text && !page.description)) return null;
-      return { url: page.url || r.link, title: page.title || r.title, description: page.description || r.snippet, text: page.text || "" };
+      // carry the search snippet — it often holds the star rating
+      return {
+        url: page.url || r.link, title: page.title || r.title,
+        description: page.description || r.snippet, snippet: r.snippet || "",
+        text: page.text || "",
+      };
     })
   );
   return settled.map((s) => (s.status === "fulfilled" ? s.value : null)).filter(Boolean);
@@ -387,26 +365,29 @@ async function fetchPages(results) {
 
 async function analyzeCandidates(goal, candidates) {
   const now = new Date();
-  const nowStr = now.toLocaleString(goal.language === "en" ? "en-GB" : "bg-BG", { weekday: "long", hour: "2-digit", minute: "2-digit" });
+  const nowStr = now.toLocaleString(LANG === "en" ? "en-GB" : "bg-BG", { weekday: "long", hour: "2-digit", minute: "2-digit" });
   const system =
     "You are the evaluation core of MenuRadar, an autonomous food decision agent. " +
     "You receive the user's structured goal, the current local day/time, and candidate restaurant pages " +
-    "(url, title, description, extracted text). For EACH candidate, judge ONLY from the provided evidence. " +
-    "NEVER invent prices, dishes or opening hours. If evidence is missing, say so and lower the score and confidence. " +
-    "Write 'reason' and 'uncertainty' in the user's language (goal.language). " +
-    "If concrete dish prices are present, set 'budgetMath' to a short equation string such as '11.90 + 2.50 = 14.40 <= 15'. Otherwise set budgetMath to null. " +
+    "(url, title, description, search snippet, extracted text). For EACH candidate, judge ONLY from the provided evidence. " +
+    "NEVER invent prices, dishes, ratings or opening hours. If evidence is missing, say so and lower the score and confidence. " +
+    t("langInstruction") + " " +
+    "Assess reviews/ratings from any star rating, review count or review text in the page or snippet; if none, set ratingText to a clear 'not found' phrase and lower review_score. " +
+    "If concrete dish prices are present, set 'budgetMath' to a short equation like '11.90 + 2.50 = 14.40 <= 15'; otherwise null. " +
     "Return ONLY JSON: {\"candidates\":[{" +
-    "url, name, matchingDishes (array), estimatedPrice (string or 'Price not confirmed'), priceConfirmed (boolean), budgetMath (string or null), " +
+    "url, name, matchingDishes (array), estimatedPrice (string or 'not confirmed'), priceConfirmed (boolean), budgetMath (string or null), " +
+    "ratingText (e.g. '4.5\u2605 (120 reviews)' or 'reviews not found'), " +
     "budgetVerdict ('within budget'|'over budget'|'budget likely fits'|'budget unclear'), " +
     "openNowVerdict ('confirmed'|'likely'|'unknown'|'likely closed'), " +
     "menuFreshness ('confirmed'|'recent'|'unknown'), " +
-    "food_match_score, budget_fit_score, open_now_score, menu_evidence_score, location_fit_score, confidence_score, " +
+    "food_match_score, review_score, budget_fit_score, open_now_score, menu_evidence_score, location_fit_score, confidence_score, " +
     "reason, uncertainty, rejectReason (null or short string)}]}. " +
     "All scores are integers 0-100. reason < 240 chars, uncertainty < 160 chars. " +
     "name is the restaurant name; if unknown, use the page title.";
   const trimmed = candidates.map((c) => ({
     url: c.url, title: (c.title || "").slice(0, 140),
-    description: (c.description || "").slice(0, 300), text: (c.text || "").slice(0, 4500),
+    description: (c.description || "").slice(0, 300), snippet: (c.snippet || "").slice(0, 200),
+    text: (c.text || "").slice(0, 4200),
   }));
   const user = `Goal: ${JSON.stringify(goal)}\nLocal time now: ${nowStr}\nCandidates:\n${JSON.stringify(trimmed)}`;
   const out = await callGroq(system, user);
@@ -419,24 +400,14 @@ async function auditDecision(goal, top) {
     "You are the self-audit layer of MenuRadar. You are shown the agent's OWN top picks (with scores, verdicts and reasons) " +
     "and the user's goal. Critically review the agent's own decision: are the confidence scores justified by the evidence? " +
     "Was anything over-ranked? Should a pick be demoted or flagged for the user? Be conservative — only change something if the " +
-    "evidence clearly does not support it. Return ONLY JSON: " +
-    "{\"verdict\":\"confirmed\"|\"adjusted\", \"adjustments\":[{\"url\":\"...\",\"action\":\"keep\"|\"demote\"|\"flag\",\"note\":\"short, in the user's language\"}], \"summary\":\"one sentence in the user's language\"}.";
+    "evidence clearly does not support it. " + t("langInstruction") + " " +
+    "Return ONLY JSON: {\"verdict\":\"confirmed\"|\"adjusted\", \"adjustments\":[{\"url\":\"...\",\"action\":\"keep\"|\"demote\"|\"flag\",\"note\":\"short\"}], \"summary\":\"one sentence\"}.";
   const slim = top.map((c) => ({
     url: c.url, name: c.name, overall_score: c.overall_score, confidence_score: c.confidence_score,
-    budgetVerdict: c.budgetVerdict, openNowVerdict: c.openNowVerdict, menuFreshness: c.menuFreshness,
-    estimatedPrice: c.estimatedPrice, reason: c.reason,
+    ratingText: c.ratingText, budgetVerdict: c.budgetVerdict, openNowVerdict: c.openNowVerdict,
+    menuFreshness: c.menuFreshness, estimatedPrice: c.estimatedPrice, reason: c.reason,
   }));
-  const user = `Goal: ${JSON.stringify(goal)}\nMy top picks:\n${JSON.stringify(slim)}`;
-  return await callGroq(system, user);
-}
-
-/* ---- "Why not ChatGPT" plain-LLM answer ---- */
-async function plainLLM(raw) {
-  const system =
-    "You are a generic chatbot with NO internet access and NO live data. Answer the user's restaurant question " +
-    "ONLY from general training knowledge. Keep it under 80 words. Do not claim current prices or opening hours. " +
-    "Answer in the same language as the user.";
-  return await callGroq(system, raw, { json: false });
+  return await callGroq(system, `Goal: ${JSON.stringify(goal)}\nMy top picks:\n${JSON.stringify(slim)}`);
 }
 
 /* ============================================================
@@ -446,16 +417,16 @@ const num = (v) => Math.max(0, Math.min(100, parseInt(v, 10) || 0));
 function computeOverall(c) {
   const w = CONFIG.WEIGHTS;
   return Math.round(
-    num(c.food_match_score) * w.food + num(c.budget_fit_score) * w.budget +
-    num(c.open_now_score) * w.open + num(c.menu_evidence_score) * w.menu +
-    num(c.location_fit_score) * w.location
+    num(c.food_match_score) * w.food + num(c.review_score) * w.review +
+    num(c.budget_fit_score) * w.budget + num(c.open_now_score) * w.open +
+    num(c.menu_evidence_score) * w.menu + num(c.location_fit_score) * w.location
   );
 }
 
 function rankAndReject(scored) {
   const withOverall = scored.map((c) => ({ ...c, overall_score: computeOverall(c) }));
   const hardReject = (c) =>
-    c.rejectReason || num(c.menu_evidence_score) < 20 || num(c.food_match_score) < 25 || c.budgetVerdict === "over budget";
+    c.rejectReason || num(c.menu_evidence_score) < 18 || num(c.food_match_score) < 22 || c.budgetVerdict === "over budget";
 
   const hardRejected = [], pool = [];
   withOverall.forEach((c) => (hardReject(c) ? hardRejected.push({ ...c, why: rejectWhy(c) }) : pool.push(c)));
@@ -464,7 +435,7 @@ function rankAndReject(scored) {
   const confident = pool.filter((c) => num(c.confidence_score) >= CONFIG.CONFIDENCE_MIN);
   const lowconf = pool.filter((c) => num(c.confidence_score) < CONFIG.CONFIDENCE_MIN);
   const ordered = confident.concat(lowconf);
-  return { top: ordered.slice(0, 3), reserve: ordered.slice(3), hardRejected };
+  return { top: ordered.slice(0, CONFIG.TOP_N), reserve: ordered.slice(CONFIG.TOP_N), hardRejected };
 }
 
 function applyAudit(top, reserve, audit) {
@@ -483,7 +454,7 @@ function applyAudit(top, reserve, audit) {
       }
     }
   });
-  while (newTop.length < 3 && newReserve.length) {
+  while (newTop.length < CONFIG.TOP_N && newReserve.length) {
     const c = newReserve.shift();
     if (c.auditDemoted) { newReserve.push(c); break; }
     newTop.push(c);
@@ -494,10 +465,10 @@ function applyAudit(top, reserve, audit) {
 function rejectWhy(c) {
   if (c.auditDemoted) return c.auditDemoted;
   if (c.rejectReason) return c.rejectReason;
-  if (num(c.menu_evidence_score) < 20) return LANG === "bg" ? "няма доказателство за меню" : "menu not found";
-  if (num(c.food_match_score) < 25) return LANG === "bg" ? "слабо съвпадение по храна" : "food match weak";
+  if (num(c.menu_evidence_score) < 18) return LANG === "bg" ? "няма доказателство за меню" : "menu not found";
+  if (num(c.food_match_score) < 22) return LANG === "bg" ? "слабо съвпадение по храна" : "food match weak";
   if (c.budgetVerdict === "over budget") return LANG === "bg" ? "над бюджета" : "over budget";
-  if (num(c.confidence_score) < CONFIG.CONFIDENCE_MIN) return LANG === "bg" ? "цена непотвърдена и ниска увереност" : "price not confirmed, low confidence";
+  if (num(c.confidence_score) < CONFIG.CONFIDENCE_MIN) return LANG === "bg" ? "ниска увереност" : "low confidence";
   return LANG === "bg" ? "по-нисък общ резултат" : "lower overall score";
 }
 
@@ -507,12 +478,14 @@ function rejectWhy(c) {
 function show(node) { node.hidden = false; }
 function hide(node) { node.hidden = true; }
 function clearAll() {
-  [el.goalPanel, el.resultsPanel, el.rejectedPanel, el.auditPanel, el.comparePanel, el.reportPanel, el.proofPanel, el.errorPanel].forEach(hide);
+  [el.goalPanel, el.resultsPanel, el.rejectedPanel, el.auditPanel, el.reportPanel, el.proofPanel, el.errorPanel].forEach(hide);
   el.cacheNote.hidden = true;
-  el.compareBtn.hidden = true;
-  el.compare.innerHTML = "";
 }
 
+function fmtBudget(goal) {
+  if (goal.budget == null) return null;
+  return goal.currency === "EUR" ? `${goal.budget} €` : `${goal.budget} ${goal.currency}`;
+}
 function mapsUrl(name, city) {
   const q = encodeURIComponent([name, city].filter(Boolean).join(" "));
   return `https://www.google.com/maps/search/?api=1&query=${q}`;
@@ -522,8 +495,7 @@ function renderGoal(goal, cached) {
   const c = I18N[LANG].chip;
   const rows = [
     [c.city, goal.city], [c.area, goal.area], [c.food, goal.food],
-    [c.budget, goal.budget != null ? `${goal.budget} ${goal.currency}` : "—"],
-    [c.time, goal.timeContext], [c.priority, goal.priority],
+    [c.budget, fmtBudget(goal) || "—"], [c.time, goal.timeContext], [c.priority, goal.priority],
   ].filter(([, v]) => v);
   el.goalChips.innerHTML = rows.map(([k, v]) =>
     `<span class="chip"><span>${esc(k)}</span><b>${esc(v)}</b></span>`).join("");
@@ -544,8 +516,9 @@ function renderResults(top, flags, goal) {
   el.results.innerHTML = top.map((c, i) => {
     const score = c.overall_score;
     const dishes = (c.matchingDishes || []).slice(0, 4).map((d) => `<span class="dish">${esc(d)}</span>`).join("");
-    const price = c.estimatedPrice || "Price not confirmed";
+    const price = c.estimatedPrice || "not confirmed";
     const flagNote = flags && flags[c.url];
+    const reviewGood = num(c.review_score) >= 60;
     return `
     <article class="card ${i === 0 ? "top" : ""}">
       <div class="card-head">
@@ -557,6 +530,7 @@ function renderResults(top, flags, goal) {
       </div>
       ${dishes ? `<div class="dishes">${dishes}</div>` : ""}
       <div class="verdicts">
+        <span class="verdict ${reviewGood ? "good" : "warn"}">★ ${esc(c.ratingText || (LANG === "bg" ? "ревюта неясни" : "reviews unclear"))}</span>
         <span class="verdict"><b>${esc(price)}</b></span>
         <span class="verdict ${verdictClass("budget", c.budgetVerdict)}">${esc(c.budgetVerdict || "—")}</span>
         <span class="verdict ${verdictClass("open", c.openNowVerdict)}">${LANG === "bg" ? "отворено" : "open"}: ${esc(c.openNowVerdict || "unknown")}</span>
@@ -574,7 +548,6 @@ function renderResults(top, flags, goal) {
     </article>`;
   }).join("");
   show(el.resultsPanel);
-  el.compareBtn.hidden = false;
 }
 
 function renderRejected(rejected) {
@@ -604,11 +577,11 @@ function renderReport(goal, ctx) {
   const top = ctx.top[0];
   const conf = top ? num(top.confidence_score) : 0;
   const rows = [
-    [r.goal, `${goal.food || "—"} · ${goal.city || ""} ${goal.area || ""} · ${goal.budget != null ? goal.budget + " " + goal.currency : (LANG === "bg" ? "без бюджет" : "no budget")}`],
+    [r.goal, `${goal.food || "—"} · ${goal.city || ""} ${goal.area || ""} · ${fmtBudget(goal) || (LANG === "bg" ? "без бюджет" : "no budget")}`],
     [r.strategy, ctx.query],
     [r.pages, String(ctx.pagesRead)],
     [r.menus, String(ctx.analyzed)],
-    [r.criteria, "food 30% · budget 25% · open-now 20% · evidence 15% · location 10%"],
+    [r.criteria, "food 25% · reviews 20% · budget 20% · open-now 15% · evidence 10% · location 10%"],
     [r.audit, ctx.auditVerdict || "—"],
     [r.chosen, top ? `${top.name} — ${top.reason}` : "—"],
     [r.rejected, ctx.rejected.length ? ctx.rejected.slice(0, 3).map((c) => `${c.name || shortUrl(c.url)} (${c.why})`).join("; ") : "—"],
@@ -622,7 +595,7 @@ function renderReport(goal, ctx) {
 
 function renderProof(goal, ctx) {
   const p = I18N[LANG].proof;
-  const goalStr = `${goal.city || "?"} · ${goal.area || "?"} · ${goal.food || "?"} · ${goal.budget != null ? goal.budget + " " + goal.currency : "?"} · ${goal.timeContext || "?"}`;
+  const goalStr = `${goal.city || "?"} · ${goal.area || "?"} · ${goal.food || "?"} · ${fmtBudget(goal) || "?"} · ${goal.timeContext || "?"}`;
   const lines = [
     p.parsed(goalStr), p.query(ctx.query), p.search(ctx.serperCount),
     p.read(ctx.pagesRead), p.reject(ctx.rejected.length), p.rank(ctx.top.length),
@@ -634,37 +607,6 @@ function renderProof(goal, ctx) {
 }
 
 function renderError(msg) { el.errorMsg.textContent = msg; show(el.errorPanel); }
-
-/* ---- Compare (Why not ChatGPT) ---- */
-async function runCompare() {
-  if (!lastRun) return;
-  const cmp = I18N[LANG].compare;
-  el.compareBtn.disabled = true;
-  el.compare.innerHTML = `<p class="compare-loading">${esc(cmp.loading)}</p>`;
-  show(el.comparePanel);
-  try {
-    const plain = await plainLLM(lastRun.raw);
-    const top = lastRun.ctx.top[0];
-    el.compare.innerHTML = `
-      <div class="compare-grid">
-        <div class="compare-col llm">
-          <div class="compare-tag">${esc(cmp.llmLabel)}</div>
-          <p>${esc(plain)}</p>
-        </div>
-        <div class="compare-col mr">
-          <div class="compare-tag good">${esc(cmp.mrLabel)}</div>
-          <p>${esc(cmp.mrBody(lastRun.ctx.pagesRead, top.name, top.estimatedPrice || "—", shortUrl(top.url)))}</p>
-          <a class="source" href="${esc(top.url)}" target="_blank" rel="noopener">↗ ${esc(shortUrl(top.url))}</a>
-        </div>
-      </div>
-      <p class="compare-note">${esc(cmp.note)}</p>`;
-  } catch {
-    el.compare.innerHTML = `<p class="compare-loading">${esc(I18N[LANG].err.ai)}</p>`;
-  } finally {
-    el.compareBtn.disabled = false;
-  }
-}
-el.compareBtn.onclick = runCompare;
 
 /* ---------- helpers ---------- */
 function esc(s) {
@@ -701,7 +643,6 @@ async function runAgent() {
         renderReport(goal, cached.ctx);
         renderProof(goal, cached.ctx);
         hide(el.progress);
-        lastRun = { raw, goal, ctx: cached.ctx };
         pushHistory(raw);
         el.run.disabled = false;
         return;
@@ -710,7 +651,7 @@ async function runAgent() {
 
     setStep(1);
     const query = buildSearchQuery(goal);
-    let organic = await runSearch(query, goal);
+    let organic = await runSearch(query);
     let serperCount = organic.length;
     let filtered = filterResults(organic);
 
@@ -718,9 +659,9 @@ async function runAgent() {
     let pages = await fetchPages(filtered);
 
     if (pages.length < 3) {
-      const fbTail = goal.language === "en" ? "restaurant menu" : "ресторант меню";
+      const fbTail = LANG === "en" ? "restaurant menu reviews" : "ресторант меню ревюта";
       const fbQuery = [goal.city, goal.area, goal.food, fbTail].filter(Boolean).join(" ");
-      const fb = await runSearch(fbQuery, goal);
+      const fb = await runSearch(fbQuery);
       serperCount += fb.length;
       const fbFiltered = filterResults(fb).filter((r) => !pages.some((p) => p.url === r.link));
       const more = await fetchPages(fbFiltered.slice(0, CONFIG.MAX_FETCH - pages.length));
@@ -749,7 +690,6 @@ async function runAgent() {
       return;
     }
 
-    // Self-audit (graceful: skip on failure)
     setStep(6);
     let audit = null, flags = {};
     try {
@@ -774,7 +714,6 @@ async function runAgent() {
     renderReport(goal, ctx);
     renderProof(goal, ctx);
 
-    lastRun = { raw, goal, ctx };
     pushHistory(raw);
     writeCache(goal, { top, rejected, audit, flags, ctx });
   } catch (err) {
