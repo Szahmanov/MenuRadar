@@ -47,6 +47,12 @@ found. The app keeps a **recent-search history**, and the interface language
 (BG/EN) is switched with the top-right toggle — results follow the selected
 language.
 
+At the top of the results, a **concierge line** speaks like a local friend: it
+weighs your budget and area against the **current time** and steers you to a
+place that is **open now** — and when little is open at that hour, it says so
+and still points the hungry user to the best available option. For "now" and
+"tonight" requests, likely-closed places are pushed down the ranking.
+
 Scoring weights:
 
 ```
