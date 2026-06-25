@@ -1,0 +1,10 @@
+{
+  "name": "menuradar-by-stagove",
+  "version": "1.0.0",
+  "description": "MenuRadar by StaGove — autonomous food decision agent (PWA)",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "cheerio": "^1.0.0"
+  }
+}

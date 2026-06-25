@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0B0F12" />
+  <title>MenuRadar by StaGove</title>
+  <meta name="description" content="Autonomous food decision agent. Finds the best meal your budget can actually buy, backed by live menu evidence." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ===== Top bar ===== -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="26" height="26">
+          <circle cx="16" cy="16" r="14" class="r-ring" />
+          <circle cx="16" cy="16" r="9" class="r-ring" />
+          <circle cx="16" cy="16" r="4" class="r-ring" />
+          <line x1="16" y1="16" x2="29" y2="9" class="r-sweep" />
+          <circle cx="23" cy="11" r="2.2" class="r-blip" />
+        </svg>
+      </span>
+      <span class="brand-text">MenuRadar<small>by StaGove</small></span>
+    </div>
+    <div class="topbar-actions">
+      <button id="langToggle" class="ghost-btn" type="button" aria-label="Език / Language">BG</button>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <!-- ===== Hero + input ===== -->
+    <section class="hero">
+      <h1 id="headline" data-i18n="hero.title">Намери най-доброто ядене за бюджета си.</h1>
+      <p class="hero-sub" data-i18n="hero.sub">Един ред. Агентът претърсва живи менюта, проверява бюджет, работно време и доказателства — и решава вместо теб.</p>
+
+      <div class="search-card">
+        <textarea id="queryInput" rows="2" data-i18n-ph="input.placeholder"
+          placeholder="Пловдив, център, пилешко, 15 лв, сега"></textarea>
+        <div class="search-row">
+          <label class="refresh-toggle">
+            <input type="checkbox" id="forceRefresh" />
+            <span data-i18n="input.refresh">Презареди (игнорирай кеша)</span>
+          </label>
+          <button id="runBtn" class="run-btn" type="button">
+            <span data-i18n="input.run">Намери</span>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+        <div class="examples" id="examples" aria-label="Примери"></div>
+        <div class="history-row" id="historyRow" hidden></div>
+      </div>
+    </section>
+
+    <!-- ===== Agent working / progress ===== -->
+    <section id="progress" class="panel progress-panel" hidden>
+      <div class="radar-wrap" aria-hidden="true">
+        <div class="radar">
+          <span class="radar-grid"></span>
+          <span class="radar-sweep"></span>
+          <span class="radar-blip b1"></span>
+          <span class="radar-blip b2"></span>
+          <span class="radar-blip b3"></span>
+        </div>
+      </div>
+      <ul class="steps" id="steps"></ul>
+    </section>
+
+    <!-- ===== Parsed goal ===== -->
+    <section id="goalPanel" class="panel" hidden>
+      <h2 class="panel-title" data-i18n="goal.title">Разчетена цел</h2>
+      <div class="chips" id="goalChips"></div>
+      <p class="cache-note" id="cacheNote" hidden></p>
+    </section>
+
+    <!-- ===== Top 3 ===== -->
+    <section id="resultsPanel" hidden>
+      <h2 class="section-head"><span data-i18n="results.title">Топ 3 препоръки</span></h2>
+      <div id="results" class="cards"></div>
+      <button id="compareBtn" class="ghost-btn compare-btn" type="button" hidden>Защо не просто ChatGPT?</button>
+    </section>
+
+    <!-- ===== Self-audit ===== -->
+    <section id="auditPanel" class="panel audit" hidden>
+      <h2 class="panel-title" data-i18n="audit.title">Самооценка на решението</h2>
+      <div id="audit" class="audit-body"></div>
+    </section>
+
+    <!-- ===== Compare (Why not ChatGPT) ===== -->
+    <section id="comparePanel" class="panel compare" hidden>
+      <h2 class="panel-title" data-i18n="compare.title">MenuRadar срещу обикновен LLM</h2>
+      <div id="compare"></div>
+    </section>
+
+    <!-- ===== Rejected ===== -->
+    <section id="rejectedPanel" class="panel" hidden>
+      <h2 class="panel-title" data-i18n="rejected.title">Отхвърлени опции</h2>
+      <ul id="rejected" class="rejected-list"></ul>
+    </section>
+
+    <!-- ===== Decision report ===== -->
+    <section id="reportPanel" class="panel report" hidden>
+      <h2 class="panel-title" data-i18n="report.title">Автономен доклад за решението</h2>
+      <div id="report" class="report-body"></div>
+    </section>
+
+    <!-- ===== Proof of autonomy ===== -->
+    <section id="proofPanel" class="panel proof" hidden>
+      <h2 class="panel-title" data-i18n="proof.title">Доказателство за автономност</h2>
+      <ul id="proof" class="proof-list"></ul>
+    </section>
+
+    <!-- ===== Error ===== -->
+    <section id="errorPanel" class="panel error-panel" hidden>
+      <p id="errorMsg"></p>
+    </section>
+
+    <!-- ===== Disclaimer ===== -->
+    <footer class="disclaimer">
+      <p data-i18n="disclaimer.text">MenuRadar търси публично достъпна онлайн информация за менюта. Ресторанти без онлайн меню може да не се появят. Цените и работното време може да са остарели — винаги потвърждавай преди да тръгнеш.</p>
+      <p class="made">MenuRadar · StaGove</p>
+    </footer>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

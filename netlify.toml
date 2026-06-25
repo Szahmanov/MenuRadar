@@ -1,0 +1,34 @@
+[build]
+  # Static site lives in the repo root, functions in netlify/functions
+  publish = "."
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Clean, stable internal API paths for the frontend
+[[redirects]]
+  from = "/api/search"
+  to = "/.netlify/functions/search"
+  status = 200
+
+[[redirects]]
+  from = "/api/fetch-page"
+  to = "/.netlify/functions/fetch-page"
+  status = 200
+
+[[redirects]]
+  from = "/api/groq"
+  to = "/.netlify/functions/groq"
+  status = 200
+
+# Always serve index.html fresh so PWA updates land immediately
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
