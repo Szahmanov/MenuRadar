@@ -5,7 +5,7 @@
 //   - Static assets (css/js/icons/manifest): cache-first.
 // Bump CACHE_VERSION on every deploy to force a clean refresh.
 
-const CACHE_VERSION = "menuradar-v2.0.0";
+const CACHE_VERSION = "menuradar-v2.1.0";
 const CORE_ASSETS = [
   "./index.html",
   "./styles.css",
