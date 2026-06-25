@@ -35,6 +35,7 @@ const I18N = {
     cache: () => `Показани са кеширани резултати от по-рано. Включи „Презареди“ за свежо търсене.`,
     chip: { city: "град", area: "район", food: "храна", budget: "бюджет", time: "момент", priority: "приоритет" },
     rank: "ВОДЕЩ",
+    conciergeLabel: "За теб сега",
     why: "Защо е избран", left: "Какво остава неясно", source: "Източник", maps: "Виж на картата",
     budgetCalc: "Сметка", rating: "Ревюта",
     auditFlag: "Бележка от самооценката",
@@ -85,6 +86,7 @@ const I18N = {
     cache: () => `Showing cached results from earlier. Tick “Force refresh” for a fresh search.`,
     chip: { city: "city", area: "area", food: "food", budget: "budget", time: "when", priority: "priority" },
     rank: "TOP PICK",
+    conciergeLabel: "For you right now",
     why: "Why selected", left: "What remains uncertain", source: "Source", maps: "View on map",
     budgetCalc: "Budget math", rating: "Reviews",
     auditFlag: "Self-audit note",
@@ -135,7 +137,7 @@ const el = {
   examples: $("examples"), history: $("historyRow"), lang: $("langToggle"),
   progress: $("progress"), steps: $("steps"),
   goalPanel: $("goalPanel"), goalChips: $("goalChips"), cacheNote: $("cacheNote"),
-  resultsPanel: $("resultsPanel"), results: $("results"),
+  resultsPanel: $("resultsPanel"), results: $("results"), concierge: $("concierge"),
   rejectedPanel: $("rejectedPanel"), rejected: $("rejected"),
   auditPanel: $("auditPanel"), audit: $("audit"),
   reportPanel: $("reportPanel"), report: $("report"),
@@ -286,6 +288,10 @@ function finishSteps() {
 /* ============================================================
    Agent steps
    ============================================================ */
+function nowString() {
+  return new Date().toLocaleString(LANG === "en" ? "en-GB" : "bg-BG", { weekday: "long", hour: "2-digit", minute: "2-digit" });
+}
+
 async function parseQuery(raw) {
   const system =
     "You are the intent parser for MenuRadar, an autonomous food decision agent operating in Bulgaria. " +
@@ -363,9 +369,7 @@ async function fetchPages(results) {
   return settled.map((s) => (s.status === "fulfilled" ? s.value : null)).filter(Boolean);
 }
 
-async function analyzeCandidates(goal, candidates) {
-  const now = new Date();
-  const nowStr = now.toLocaleString(LANG === "en" ? "en-GB" : "bg-BG", { weekday: "long", hour: "2-digit", minute: "2-digit" });
+async function analyzeCandidates(goal, candidates, nowStr) {
   const system =
     "You are the evaluation core of MenuRadar, an autonomous food decision agent. " +
     "You receive the user's structured goal, the current local day/time, and candidate restaurant pages " +
@@ -394,20 +398,42 @@ async function analyzeCandidates(goal, candidates) {
   return Array.isArray(out.candidates) ? out.candidates : [];
 }
 
-/* ---- Self-audit revision pass ---- */
-async function auditDecision(goal, top) {
+/* ---- Self-audit revision pass (+ concierge recommendation) ---- */
+async function auditDecision(goal, top, nowStr) {
   const system =
-    "You are the self-audit layer of MenuRadar. You are shown the agent's OWN top picks (with scores, verdicts and reasons) " +
-    "and the user's goal. Critically review the agent's own decision: are the confidence scores justified by the evidence? " +
-    "Was anything over-ranked? Should a pick be demoted or flagged for the user? Be conservative — only change something if the " +
-    "evidence clearly does not support it. " + t("langInstruction") + " " +
-    "Return ONLY JSON: {\"verdict\":\"confirmed\"|\"adjusted\", \"adjustments\":[{\"url\":\"...\",\"action\":\"keep\"|\"demote\"|\"flag\",\"note\":\"short\"}], \"summary\":\"one sentence\"}.";
+    "You are the self-audit + concierge layer of MenuRadar. You are shown the agent's OWN top picks " +
+    "(with scores, verdicts, open-now status and reasons), the user's goal, and the current local day/time. " +
+    "First, critically review the agent's own decision: are the confidence scores justified? Was anything over-ranked? " +
+    "Should a pick be demoted or flagged? Be conservative — only change something if the evidence clearly fails. " +
+    "Then write 'concierge': a warm, natural 1-3 sentence recommendation in the user's language, as if a local friend " +
+    "is talking. Mention the budget and area, take the CURRENT LOCAL TIME into account, and prioritise places that are " +
+    "OPEN now. If few places are open at this hour, say so plainly and still point the hungry user to the best open option " +
+    "to grab something — even if it is not the exact food they asked for. NEVER invent opening hours; base 'open' claims " +
+    "only on the openNowVerdict values provided. " + t("langInstruction") + " " +
+    "Return ONLY JSON: {\"verdict\":\"confirmed\"|\"adjusted\", \"adjustments\":[{\"url\":\"...\",\"action\":\"keep\"|\"demote\"|\"flag\",\"note\":\"short\"}], \"summary\":\"one sentence\", \"concierge\":\"1-3 sentences\"}.";
   const slim = top.map((c) => ({
     url: c.url, name: c.name, overall_score: c.overall_score, confidence_score: c.confidence_score,
     ratingText: c.ratingText, budgetVerdict: c.budgetVerdict, openNowVerdict: c.openNowVerdict,
     menuFreshness: c.menuFreshness, estimatedPrice: c.estimatedPrice, reason: c.reason,
   }));
-  return await callGroq(system, `Goal: ${JSON.stringify(goal)}\nMy top picks:\n${JSON.stringify(slim)}`);
+  const budget = fmtBudget(goal) || (LANG === "bg" ? "без зададен бюджет" : "no set budget");
+  const user = `Goal: ${JSON.stringify(goal)}\nBudget: ${budget}\nLocal time now: ${nowStr}\nMy top picks:\n${JSON.stringify(slim)}`;
+  return await callGroq(system, user);
+}
+
+/* ---- Templated concierge fallback (if the audit call fails) ---- */
+function fallbackConcierge(goal, top) {
+  const openOnes = top.filter((c) => c.openNowVerdict === "confirmed" || c.openNowVerdict === "likely");
+  const pick = openOnes[0] || top[0];
+  if (!pick) return "";
+  const where = goal.area || goal.city || "";
+  const b = fmtBudget(goal);
+  if (LANG === "bg") {
+    if (openOnes.length) return `За ${b || "този бюджет"} в ${where} най-добрият отворен в момента избор е ${pick.name}. Потвърди по телефона преди да тръгнеш.`;
+    return `Малко места изглеждат отворени в момента в ${where}. ${pick.name} е най-добрата налична опция — обади се да потвърдиш, че работят.`;
+  }
+  if (openOnes.length) return `For ${b || "this budget"} in ${where}, the best place open right now is ${pick.name}. Call to confirm before you head out.`;
+  return `Few places look open right now in ${where}. ${pick.name} is your best available option — call to confirm they're serving.`;
 }
 
 /* ============================================================
@@ -423,8 +449,23 @@ function computeOverall(c) {
   );
 }
 
-function rankAndReject(scored) {
-  const withOverall = scored.map((c) => ({ ...c, overall_score: computeOverall(c) }));
+// The user wants to eat now-ish → open-now matters more than a perfect match.
+function isImmediate(goal) {
+  return ["now", "tonight", "lunch"].includes(goal.timeContext);
+}
+function openAdjust(score, verdict, immediate) {
+  if (!immediate) return score;
+  if (verdict === "likely closed") return Math.round(score * 0.55);
+  if (verdict === "unknown") return Math.round(score * 0.88);
+  return score; // confirmed / likely
+}
+
+function rankAndReject(scored, goal) {
+  const immediate = isImmediate(goal);
+  const withOverall = scored.map((c) => ({
+    ...c,
+    overall_score: openAdjust(computeOverall(c), c.openNowVerdict, immediate),
+  }));
   const hardReject = (c) =>
     c.rejectReason || num(c.menu_evidence_score) < 18 || num(c.food_match_score) < 22 || c.budgetVerdict === "over budget";
 
@@ -480,6 +521,16 @@ function hide(node) { node.hidden = true; }
 function clearAll() {
   [el.goalPanel, el.resultsPanel, el.rejectedPanel, el.auditPanel, el.reportPanel, el.proofPanel, el.errorPanel].forEach(hide);
   el.cacheNote.hidden = true;
+  if (el.concierge) { el.concierge.hidden = true; el.concierge.innerHTML = ""; }
+}
+
+function renderConcierge(text) {
+  if (!el.concierge) return;
+  if (!text) { el.concierge.hidden = true; el.concierge.innerHTML = ""; return; }
+  el.concierge.innerHTML =
+    `<span class="concierge-label">${esc(t("conciergeLabel"))}</span>` +
+    `<p class="concierge-text">${esc(text)}</p>`;
+  el.concierge.hidden = false;
 }
 
 function fmtBudget(goal) {
@@ -637,6 +688,7 @@ async function runAgent() {
       if (cached) {
         finishSteps();
         renderGoal(goal, true);
+        renderConcierge(cached.concierge);
         renderResults(cached.top, cached.flags, goal);
         renderRejected(cached.rejected);
         renderAudit(cached.audit);
@@ -676,11 +728,12 @@ async function runAgent() {
     }
 
     setStep(3);
-    const scored = await analyzeCandidates(goal, pages);
+    const nowStr = nowString();
+    const scored = await analyzeCandidates(goal, pages, nowStr);
     setStep(4);
 
     setStep(5);
-    let { top, reserve, hardRejected } = rankAndReject(scored);
+    let { top, reserve, hardRejected } = rankAndReject(scored, goal);
 
     if (!top.length) {
       finishSteps(); hide(el.progress);
@@ -693,11 +746,12 @@ async function runAgent() {
     setStep(6);
     let audit = null, flags = {};
     try {
-      audit = await auditDecision(goal, top);
+      audit = await auditDecision(goal, top, nowStr);
       const applied = applyAudit(top, reserve, audit);
       top = applied.top; reserve = applied.reserve; flags = applied.flags;
     } catch { audit = null; }
 
+    const concierge = (audit && audit.concierge) ? audit.concierge : fallbackConcierge(goal, top);
     const rejected = reserve.map((c) => ({ ...c, why: rejectWhy(c) })).concat(hardRejected);
 
     setStep(7);
@@ -708,6 +762,7 @@ async function runAgent() {
 
     finishSteps();
     hide(el.progress);
+    renderConcierge(concierge);
     renderResults(top, flags, goal);
     renderRejected(rejected);
     renderAudit(audit);
@@ -715,7 +770,7 @@ async function runAgent() {
     renderProof(goal, ctx);
 
     pushHistory(raw);
-    writeCache(goal, { top, rejected, audit, flags, ctx });
+    writeCache(goal, { top, rejected, audit, flags, ctx, concierge });
   } catch (err) {
     hide(el.progress);
     const code = err instanceof AgentError ? err.code : "search";
