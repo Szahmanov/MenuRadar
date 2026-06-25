@@ -440,6 +440,29 @@ body {
 .audit-act.demote { background: rgba(255,93,108,.14); color: var(--danger); }
 .audit-act.flag { background: rgba(255,138,61,.14); color: var(--appetite); }
 
+/* ---- Concierge callout ---- */
+.concierge {
+  position: relative;
+  background: linear-gradient(180deg, rgba(255,138,61,.10), rgba(52,226,160,.05));
+  border: 1px solid var(--appetite-dim);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 14px;
+}
+.concierge::before {
+  content: "◍";
+  position: absolute; top: 14px; right: 16px;
+  color: var(--appetite); font-size: 16px; opacity: .7;
+}
+.concierge-label {
+  font: 700 10px "JetBrains Mono", monospace; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--appetite);
+}
+.concierge-text {
+  margin: 8px 0 0; font-size: 15.5px; line-height: 1.55; color: var(--text);
+  max-width: 60ch;
+}
+
 /* ---- Accessibility / motion ---- */
 :focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
