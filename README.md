@@ -1,13 +1,13 @@
 # MenuRadar by StaGove
 
-**Find the best meal your budget can actually buy.**
-*Намери най-доброто ядене за бюджета си.*
+**Where to eat right now — real menus, real reviews, your budget.**
+*Къде да ядеш сега — реални менюта, реални ревюта, твоят бюджет.*
 
 MenuRadar is an autonomous food decision agent. You type one messy line —
-`Пловдив, център, пилешко, 15 лв, сега` — and the agent searches live menu
+`Пловдив, център, пилешко, 15 €, сега` — and the agent searches live menu
 data on the web, reads restaurant pages, checks whether your dish exists,
 whether your budget actually covers a meal, and whether the place is open now.
-It then ranks the top 3, rejects the weak matches, and explains its decision.
+It checks the day and time, reads real menus and reviews, ranks the top 5 places, rejects the weak matches, and explains its decision.
 
 It is a PWA: installable to a phone home screen, launched from an icon, no app
 store required.
@@ -36,23 +36,24 @@ The agent runs a real loop on every query:
 7. **Score** each on food match, budget fit, open-now, menu evidence and
    location — combined with fixed weights.
 8. **Reject** weak matches (no menu, wrong food, over budget, low confidence).
-9. **Rank** the survivors and return the top 3 with reasons.
+9. **Rank** the survivors and return the top 5 with reasons.
 10. **Report** what it did, why it chose the winner, and what is still uncertain.
 
-After the top 3 are ranked, MenuRadar runs a **self-audit pass**: a second AI
+After the top 5 are ranked, MenuRadar runs a **self-audit pass**: a second AI
 review of its own decision that can demote or flag a pick if the evidence does
-not support it. Each result also carries a **Google Maps link**, an explicit
-**budget calculation** when concrete prices are found, and the app keeps a
-**recent-search history**. A **"Why not ChatGPT?"** button shows the agent's
-evidence-backed answer side by side with what a plain LLM returns from memory.
+not support it. Each result carries a star **rating from reviews**, a **Google
+Maps link**, and an explicit **budget calculation** when concrete prices are
+found. The app keeps a **recent-search history**, and the interface language
+(BG/EN) is switched with the top-right toggle — results follow the selected
+language.
 
 Scoring weights:
 
 ```
-overall = food 0.30 + budget 0.25 + open-now 0.20 + evidence 0.15 + location 0.10
+overall = food 0.25 + reviews 0.20 + budget 0.20 + open-now 0.15 + evidence 0.10 + location 0.10
 ```
 
-Candidates below 55 confidence are kept out of the top 3 unless nothing better
+Candidates below 50 confidence are kept out of the top 5 unless nothing better
 exists.
 
 ## 3. Why it is autonomous
@@ -145,8 +146,8 @@ menu information. Restaurants without online menus may not appear."*
 **Name:** MenuRadar by StaGove
 
 **Short description:** Autonomous food decision agent that searches live public
-menu data, evaluates budget fit, open-now status, menu evidence and food match,
-then recommends the top 3 places to eat.
+menu and review data, evaluates food match, reviews, budget fit, open-now status
+and menu evidence, then recommends the top 5 places to eat.
 
 **Utility:** Solves the real problem of deciding where to eat under time,
 budget, location and food constraints without manually checking restaurant
